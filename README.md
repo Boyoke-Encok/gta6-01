@@ -1,8 +1,8 @@
 # SOLMAR HEAT
 
-[![bounty](https://img.shields.io/badge/bounty-make.fun-gold)](https://make.fun/bounty/gta6-01)
-[![prize](https://img.shields.io/badge/prize-%241%2C666-green)](https://make.fun/bounty/gta6-01)
-[![engine](https://img.shields.io/badge/engine-canvas%20%2B%20ES%20modules-blue)](https://make.fun/bounty/gta6-01)
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/Boyoke-Encok/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/Boyoke-Encok/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 A 2D top-down open-world crime game set in the city of Solmar. Play Rae, a
 getaway driver working six jobs across downtown, the beachfront, the harbor
