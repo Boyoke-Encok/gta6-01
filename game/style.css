@@ -1,50 +1,46 @@
+/* Azura Bay — HUD and menu styling. Written fresh for the gta6-01 round-3 entry. */
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #111; font-family: 'Segoe UI', system-ui, sans-serif; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0b1e33; font-family: 'Segoe UI', system-ui, sans-serif; }
 #game { display: block; width: 100vw; height: 100vh; }
 
-/* HUD chips */
-#hud-left { position: fixed; top: 12px; left: 12px; z-index: 5; color: #fff; text-shadow: 0 1px 3px #000; }
-.stars { font-size: 26px; letter-spacing: 3px; color: #ffd700; }
-.stars.hot { color: #ff5340; }
-#health-bar { width: 190px; height: 14px; background: rgba(0,0,0,0.55); border: 1px solid #fff3; border-radius: 7px; margin-top: 4px; overflow: hidden; }
-.health-fill { height: 100%; background: #2ecc71; transition: width 0.15s; }
-.health-fill.low { background: #e74c3c; }
-.health-num { font-size: 12px; margin-top: 2px; }
-#hud-right { position: fixed; top: 12px; right: 12px; z-index: 5; text-align: right; color: #fff; text-shadow: 0 1px 3px #000; }
-.money { font-size: 30px; font-weight: 800; color: #7dff9a; }
-.score { font-size: 14px; opacity: 0.9; }
-.clock { font-size: 14px; opacity: 0.9; }
+#hud { position: fixed; inset: 0; pointer-events: none; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.6); }
+#hud-top-left { position: absolute; top: 14px; left: 16px; }
+.stars { font-size: 30px; letter-spacing: 4px; color: #ffd166; }
+.stars.hot { color: #ff4757; animation: blink 0.5s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0.45; } }
+#hud-money { font-size: 22px; font-weight: 800; margin-top: 2px; }
+#hud-top-center { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; }
+#hud-clock { font-size: 22px; font-weight: 800; }
+#hud-boost { width: 150px; height: 12px; margin-top: 6px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px; position: relative; }
+#hud-boost-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #2ed573, #ffd166); border-radius: 6px; }
+#hud-boost span { position: absolute; inset: 0; font-size: 9px; font-weight: 800; letter-spacing: 2px; line-height: 11px; text-align: center; }
+#hud-top-right { position: absolute; top: 14px; right: 16px; text-align: right; }
+#hud-health { width: 190px; height: 16px; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.55); border-radius: 8px; overflow: hidden; }
+#hud-health-fill { height: 100%; width: 100%; background: #2ed573; }
+#hud-health-label { font-size: 11px; font-weight: 800; letter-spacing: 2px; margin-top: 3px; }
+#hud-mission { position: absolute; top: 84px; left: 16px; background: rgba(8,20,40,0.72); border-left: 5px solid #ffd166; border-radius: 8px; padding: 10px 14px; max-width: 330px; }
+#hud-mission-title { font-size: 17px; font-weight: 800; color: #ffd166; }
+#hud-mission-obj { font-size: 14px; margin-top: 3px; line-height: 1.35; }
+#hud-mission-timer { font-size: 20px; font-weight: 800; color: #ffd166; margin-top: 4px; }
+#bust-warning { position: absolute; top: 44%; left: 50%; transform: translateX(-50%); font-size: 30px; font-weight: 900; color: #ff4757; animation: blink 0.4s steps(2) infinite; white-space: nowrap; }
+#minimap { position: absolute; right: 16px; bottom: 16px; width: 200px; height: 200px; border: 3px solid rgba(255,255,255,0.75); border-radius: 10px; box-shadow: 0 4px 18px rgba(0,0,0,0.5); background: #69b578; }
+#hud-toasts { position: absolute; left: 16px; bottom: 64px; display: flex; flex-direction: column; gap: 6px; }
+.toast { background: rgba(8,20,40,0.85); border: 1px solid rgba(255,209,102,0.7); color: #ffe9a8; padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 600; max-width: 380px; }
+#hud-help { position: absolute; bottom: 14px; left: 16px; font-size: 12px; opacity: 0.85; }
 
-/* Mission banner: top-center, max width keeps it clear of the money readout */
-#mission-banner {
-  position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
-  max-width: 46vw; z-index: 5; display: none;
-  background: rgba(0,0,0,0.6); border: 1px solid #ffd70088; border-radius: 8px;
-  color: #fff; padding: 8px 16px; text-align: center; font-size: 15px;
-}
-#mission-timer { color: #ffd700; font-weight: 700; margin-left: 8px; }
-#hold-bar { display: none; height: 8px; background: rgba(255,255,255,0.2); border-radius: 4px; margin-top: 6px; overflow: hidden; }
-#hold-bar > div { height: 100%; width: 0; background: #ffd700; }
+#mission-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(8,20,40,0.94); color: #fff; border: 2px solid #ffd166; border-radius: 14px; padding: 22px 28px; z-index: 30; min-width: 380px; }
+#mission-panel h2 { color: #ffd166; margin-bottom: 10px; }
+#mission-panel li { list-style: none; padding: 7px 0; font-size: 15px; border-bottom: 1px solid rgba(255,255,255,0.15); }
+#mission-panel li.now { color: #ffd166; font-weight: 800; }
+.panel-hint { margin-top: 12px; font-size: 12px; opacity: 0.7; }
 
-#minimap { position: fixed; right: 12px; bottom: 12px; z-index: 5; border: 2px solid rgba(255,255,255,0.5); border-radius: 6px; background: #223; }
-#hint { position: fixed; left: 12px; bottom: 12px; z-index: 5; color: #fff; opacity: 0.75; font-size: 12px; text-shadow: 0 1px 2px #000; max-width: 44vw; }
-#toasts { position: fixed; left: 50%; bottom: 110px; transform: translateX(-50%); z-index: 6; text-align: center; pointer-events: none; }
-.toast { background: rgba(0,0,0,0.65); color: #fff; border-radius: 6px; padding: 6px 14px; margin-top: 6px; font-size: 15px; display: inline-block; }
-
-/* Overlays */
-.overlay { position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.55); }
-.panel { background: rgba(16,18,24,0.94); border: 2px solid #ffd70055; border-radius: 14px; padding: 30px 38px; text-align: center; color: #fff; max-width: 560px; }
-.panel h1 { font-size: 44px; letter-spacing: 3px; color: #ffd700; margin-bottom: 8px; }
-.panel .tagline { font-size: 17px; opacity: 0.9; margin-bottom: 10px; }
-.panel .best { color: #7dff9a; margin-bottom: 14px; }
-.panel .foot { font-size: 13px; opacity: 0.65; margin-top: 14px; }
-.panel button { display: inline-block; margin: 6px; padding: 11px 22px; font-size: 16px; font-weight: 700; border: none; border-radius: 8px; background: #ffd700; color: #111; cursor: pointer; }
-.panel button:hover { background: #ffe14d; }
-#howto { display: none; text-align: left; font-size: 14px; line-height: 1.55; margin-top: 12px; border-top: 1px solid #fff2; padding-top: 12px; }
-#howto.open { display: block; }
-#howto p { margin-bottom: 6px; }
-.win-money { font-size: 40px; font-weight: 800; color: #7dff9a; margin: 8px 0; }
-.panel-row { display: flex; justify-content: space-between; gap: 24px; padding: 8px 4px; border-bottom: 1px solid #fff1; font-size: 15px; text-align: left; }
-.panel-row.done { color: #7dff9a; }
-.panel-row.current { color: #ffd700; font-weight: 700; }
-.panel-row.locked { color: #888; }
+#title-screen, #pause-screen, #end-screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(160deg, rgba(6,32,64,0.55), rgba(255,120,60,0.28)); z-index: 20; }
+.title-card { text-align: center; color: #fff; max-width: 620px; padding: 30px; }
+.title-kicker { letter-spacing: 4px; font-size: 13px; font-weight: 800; color: #ffd166; }
+.title-card h1 { font-size: 84px; font-weight: 900; letter-spacing: 2px; line-height: 1; margin: 10px 0 0; text-shadow: 0 6px 0 rgba(0,0,0,0.25), 0 12px 32px rgba(0,0,0,0.5); }
+.title-sub { font-size: 30px; font-weight: 800; letter-spacing: 12px; color: #ff8c5a; margin-top: 4px; }
+.title-story { font-size: 16px; line-height: 1.55; margin: 18px 0; color: #eef4ff; text-shadow: 0 2px 6px rgba(0,0,0,0.6); }
+.title-card button { pointer-events: auto; cursor: pointer; font-size: 19px; font-weight: 800; letter-spacing: 1px; color: #1a1a2e; background: linear-gradient(180deg, #ffd166, #ff9f43); border: none; border-radius: 12px; padding: 14px 30px; margin: 6px; box-shadow: 0 6px 0 #b25e09, 0 10px 24px rgba(0,0,0,0.4); }
+.title-card button:active { transform: translateY(4px); box-shadow: 0 2px 0 #b25e09; }
+.title-best { margin-top: 10px; font-size: 14px; color: #ffd166; font-weight: 700; }
+.title-controls { margin-top: 16px; font-size: 12.5px; opacity: 0.85; line-height: 1.6; }

@@ -1,48 +1,49 @@
-# SOLMAR HEAT
+# Azura Bay — Getaway
 
-[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![rank](https://make.fun/badge/gta6-01/Boyoke-Encok/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![reward](https://make.fun/badge/gta6-01/Boyoke-Encok/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![make.fun](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
+[![rank](https://make.fun/badge/gta6-01/Boyoke-Encok/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01)
+[![reward](https://make.fun/badge/gta6-01/Boyoke-Encok/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01)
 
-SOLMAR HEAT is a 2D top-down open-world crime game set in the city of Solmar. You are Rae, a getaway driver working your way up the city's underworld — from small street fares to the score of a lifetime. Every job pays, every job raises the heat, and the police are always one siren away.
+An original open-world crime game for the [make.fun gta6-01 bounty](https://make.fun/bounty/gta6-01): a sun-soaked coastal city to explore on foot and by car, built entirely from code — no borrowed art, music, names or maps.
 
-## The six jobs
+## The game
 
-- **First Fare — $400.** Your first job on the streets of Solmar.
-- **Hot Wheels — $600.** A faster car, a hotter job.
-- **Harbor Run — $800.** Down to the docks and back before the heat catches up.
-- **Bank Job — $1,500.** Hold E to crack it open.
-- **Kingpin's Errand — $1,200.** Three stops, 180 seconds on the clock.
-- **The Big Score — $5,000.** The vault, four guards, and a five-star tail on the way out.
+**Azura Bay** is a vibrant seaside city: a dense downtown of colorful towers, a beachfront with palms and umbrellas, a working harbor full of containers and cranes, quiet suburbs, and a highway ring. You are **Milo Reyes**, getaway driver for Vera's crew.
 
-Finish all six jobs — $9,500 in total — to win the game. Get busted by the police or wasted on the street and the run is over.
-
-## The city
-
-- 16 traffic cars driving a real road graph, plus 34 pedestrians on the sidewalks.
-- Any car can be stolen — walk up and press E.
-- Wanted level 0–5 stars: the higher the heat, the harder the police chase, ram, and try to bust you.
-- Health regenerates over time, and medkits are scattered around the city.
-- Synthesized WebAudio for engines, sirens, and gunfire — no audio files.
-- Minimap, mission tracker, and a localStorage best-take record.
+- **Explore on foot and by car** — sprint, steal any traffic car (E), drive with boost and handbrake drifts
+- **Living traffic** — 16 cars obeying traffic lights, 34 pedestrians who flee from gunfire
+- **Wanted level 0–5** — police cars chase and ram you, foot cops close in; get busted if they box you in
+- **Six story missions** — First Fare, Hot Wheels, Harbor Run, Bank Job, Kingpin's Errand, and The Big Score ($9,500 total)
+- **Combat** — mouse-aimed pistol, armed guards, health + medkits, explosions
+- **HUD + minimap** — wanted stars, cash, health, boost meter, mission tracker with timers, live minimap
+- **Save** — best score and cash persist in localStorage; free-roam mode (F) when you just want the city
+- **Sound** — fully synthesized WebAudio: engine hum, sirens, gunshots, and a synthwave bassline (N to mute)
 
 ## Controls
 
-On foot: **WASD** move · **Shift** sprint · **Space** shoot · **E** enter car
-Driving: **W** gas · **S** brake/reverse · **A/D** steer · **Space** handbrake · **Shift** boost · **E** exit car
-**P** pause · **M** job list · **N** mute · **F** free roam · **R** restart
+| Key | Action |
+| --- | --- |
+| WASD / arrows | Move on foot / drive |
+| Mouse | Aim (on foot) |
+| Space | Shoot (on foot) / handbrake (in car) |
+| E | Enter, exit or steal a car / hold to crack safes |
+| Shift | Sprint / boost |
+| P | Pause · M missions · F free roam · N mute · R restart |
 
-## How to play
+## Play it
 
-Open `game/index.html` in a desktop browser, or run `node serve.ts` and visit http://localhost:8080.
+```sh
+node serve.ts
+# open http://localhost:8080
+```
 
 ## Tips
 
-- Lose the tail before you go for the vault — five stars on the Big Score is a death sentence.
-- Medkits are worth the detour when the heat is up, and a stolen car is always faster than running.
+- Stealing a car in front of witnesses raises your wanted level — steal quietly.
+- Wanted stars cool off after 10 clean seconds, one star every 8 seconds.
+- The red Comet at the Marina is the fastest car in the city.
+- Hold E at the bank vault and the Meridian vault — but watch for guards.
 
-## Tech
+## License
 
-Pure canvas rendering with ES modules. No libraries, no network requests, no image or audio assets — every sprite, sound, and street is generated in code.
-
-Built for the make.fun bounty: https://make.fun/bounty/gta6-01
+MIT — see [LICENSE](LICENSE).

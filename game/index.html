@@ -3,106 +3,69 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SOLMAR HEAT — Six Jobs. One City.</title>
+<title>Azura Bay — Getaway</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<canvas id="game" width="1280" height="800"></canvas>
+<canvas id="game"></canvas>
 
-<!-- Top-left: wanted stars + health -->
-<div id="hud-left">
-  <div id="stars" class="stars">☆☆☆☆☆</div>
-  <div id="health-bar"><div id="health-fill" class="health-fill" style="width:100%"></div></div>
-  <div id="health-num" class="health-num">100</div>
+<div id="hud" style="display:none">
+  <div id="hud-top-left">
+    <div id="hud-stars" class="stars">☆☆☆☆☆</div>
+    <div id="hud-money">$0 · Score 0</div>
+  </div>
+  <div id="hud-top-center">
+    <div id="hud-clock">00:00</div>
+    <div id="hud-boost"><div id="hud-boost-fill"></div><span>BOOST</span></div>
+  </div>
+  <div id="hud-top-right">
+    <div id="hud-health"><div id="hud-health-fill"></div></div>
+    <div id="hud-health-label">HEALTH</div>
+  </div>
+  <div id="hud-mission">
+    <div id="hud-mission-title">1 · First Fare</div>
+    <div id="hud-mission-obj">Pick up the client</div>
+    <div id="hud-mission-timer"></div>
+  </div>
+  <div id="bust-warning" style="display:none">⚠ THE LAW IS ON YOU — RUN!</div>
+  <canvas id="minimap" width="200" height="200"></canvas>
+  <div id="hud-toasts"></div>
+  <div id="hud-help">WASD move/drive · E enter/steal car · Space shoot/handbrake · Shift sprint/boost · P pause · M missions · F free roam · N mute · R restart</div>
 </div>
 
-<!-- Top-right: money / score / clock -->
-<div id="hud-right">
-  <div id="money" class="money">$0</div>
-  <div id="score" class="score">Score 0</div>
-  <div id="clock" class="clock">18:00</div>
+<div id="mission-panel" style="display:none">
+  <h2>Missions — Milo Reyes</h2>
+  <ul id="mission-list"></ul>
+  <p class="panel-hint">Press M to close</p>
 </div>
 
-<!-- Top-center: mission banner (kept clear of the money readout) -->
-<div id="mission-banner">
-  <span id="mission-text"></span>
-  <span id="mission-timer"></span>
-  <div id="hold-bar"><div></div></div>
-</div>
-
-<!-- Bottom-right: minimap -->
-<canvas id="minimap" width="180" height="180"></canvas>
-
-<!-- Bottom-left: controls hint -->
-<div id="hint">WASD move/drive · E enter car · Space shoot/handbrake · Shift sprint/boost · P pause · M jobs · N mute · F free roam · R restart</div>
-
-<!-- Toasts -->
-<div id="toasts"></div>
-
-<!-- Start menu -->
-<div id="overlay-menu" class="overlay">
-  <div class="panel">
-    <h1>SOLMAR HEAT</h1>
-    <p class="tagline">Six jobs. One city. No brakes.</p>
-    <p id="menu-best" class="best"></p>
-    <button id="btn-new">New Game</button>
-    <button id="btn-continue">Continue</button>
-    <button id="btn-how">How to Play</button>
-    <div id="howto">
-      <p><b>On foot:</b> WASD move · Shift sprint · Space shoot · E enter a car</p>
-      <p><b>Driving:</b> W/S gas &amp; brake · A/D steer · Space handbrake · Shift boost · E exit</p>
-      <p><b>Jobs:</b> follow the gold marker. M opens the job list, F toggles free roam.</p>
-      <p><b>Heat:</b> crimes raise your wanted stars. Cops bust you on foot if they touch you, or in a car if they box you in. Lay low and stars fade.</p>
-      <p>Finish all six jobs to win. Busted or wasted ends the run — press R to retry the job.</p>
-    </div>
-    <p class="foot">Rae needs $9,500. The city is not giving it away.</p>
+<div id="title-screen">
+  <div class="title-card">
+    <div class="title-kicker">A SUN-SOAKED OPEN-WORLD CRIME GAME</div>
+    <h1>AZURA BAY</h1>
+    <div class="title-sub">GETAWAY</div>
+    <p class="title-story">Milo Reyes drives for Vera's crew. Six jobs stand between him and the big score — from a first fare at the beach hotel to a five-star escape by boat. Steal cars, outrun the Azura Bay PD, and don't get caught.</p>
+    <button id="start-btn">▶ START THE STORY</button>
+    <button id="continue-btn" style="display:none">↻ CONTINUE</button>
+    <p id="best-line" class="title-best"></p>
+    <p class="title-controls">WASD move / drive · E enter or steal a car · Space shoot / handbrake · Shift sprint / boost · P pause · M missions · F free roam · N mute</p>
   </div>
 </div>
 
-<!-- Pause -->
-<div id="overlay-pause" class="overlay">
-  <div class="panel">
-    <h1>Paused</h1>
-    <p>Press P to resume.</p>
-    <button id="btn-menu">Quit to Menu</button>
+<div id="pause-screen" style="display:none">
+  <div class="title-card">
+    <h1>PAUSED</h1>
+    <p class="title-story">Azura Bay waits for no one — except right now.</p>
+    <button id="resume-btn">▶ RESUME</button>
+    <button id="restart-btn">↻ RESTART</button>
   </div>
 </div>
 
-<!-- Busted -->
-<div id="overlay-busted" class="overlay">
-  <div class="panel">
-    <h1>BUSTED</h1>
-    <p>The heat caught up with Rae.</p>
-    <button id="btn-retry">Retry Job (R)</button>
-  </div>
-</div>
-
-<!-- Wasted -->
-<div id="overlay-wasted" class="overlay">
-  <div class="panel">
-    <h1>WASTED</h1>
-    <p>Rae went down in Solmar.</p>
-    <button id="btn-retry2">Retry Job (R)</button>
-  </div>
-</div>
-
-<!-- Win -->
-<div id="overlay-win" class="overlay">
-  <div class="panel">
-    <h1>THE BIG SCORE</h1>
-    <p>All six jobs done. Rae walks away with</p>
-    <p id="win-money" class="win-money">$9,500</p>
-    <button id="btn-win-again">Play Again (R)</button>
-    <button id="btn-win-menu">Menu</button>
-  </div>
-</div>
-
-<!-- Job list -->
-<div id="overlay-panel" class="overlay">
-  <div class="panel">
-    <h1>Jobs</h1>
-    <div id="panel-list"></div>
-    <p class="foot">Press M to close. F toggles free roam.</p>
+<div id="end-screen" style="display:none">
+  <div class="title-card">
+    <h1 id="end-title">YOU WIN!</h1>
+    <p id="end-sub" class="title-story"></p>
+    <button id="end-restart-btn">↻ PLAY AGAIN (R)</button>
   </div>
 </div>
 

@@ -1,178 +1,255 @@
-// Solmar: a 3200x3200 city. Grid roads + ring road, districts, buildings,
-// beach + sea to the south, harbor water to the east. Built from a seed so
-// ?seed= replays the same layout. Pure data + queries; no rendering here.
-import { clamp, mulberry32, rand, randi, choice } from './util.js';
+// Azura Bay — procedural city: roads, districts, buildings, beach, harbor.
+// All layout is generated once from a fixed seed, so every load looks identical.
+// Written fresh for the gta6-01 round-3 entry.
+
+import { makeRng, rand, randInt, choice, clamp, resolveCircleBox, pointInBox } from './util.js';
 
 export const WORLD = 3200;
-export const ROAD_W = 90;
-export const ROAD_V = [200, 700, 1300, 1900, 2500, 3000];
-export const ROAD_H = [200, 700, 1300, 1900, 2500, 3000];
 
-// Named spots the missions and the spawn point use. All sit on or beside roads.
-export const PLACES = {
-  spawn: { x: 700, y: 640, label: 'Safehouse' },
-  safehouse: { x: 700, y: 640, label: 'Safehouse' },
-  taxi: { x: 1300, y: 1240, label: 'Taxi stand' },
-  dropoff: { x: 2500, y: 1900, label: 'Hotel drop-off' },
-  goldcar: { x: 1900, y: 700, label: 'Gold coupe' },
-  garage: { x: 700, y: 1900, label: 'Chop shop' },
-  harbor: { x: 2900, y: 700, label: 'Harbor pier' },
-  downtown: { x: 1300, y: 1900, label: 'Downtown office' },
-  bank: { x: 1900, y: 1240, label: 'Solmar Bank' },
-  stop1: { x: 2500, y: 700, label: 'Rooftop bar' },
-  stop2: { x: 1300, y: 2500, label: 'Beach cafe' },
-  stop3: { x: 2500, y: 2500, label: 'Boardwalk' },
-  vault: { x: 1900, y: 1300, label: 'Vault' },
-};
+const PALETTE = [
+  '#ff6b5e', '#ff9f43', '#f7c948', '#2ec4b6', '#4d96ff', '#9b5de5',
+  '#ef476f', '#06d6a0', '#ffbf69', '#5e60ce', '#e07a5f', '#81b29a',
+];
 
-const PALETTES = {
-  downtown: ['#8a7f8d', '#6f7d8c', '#9c8a7a', '#7a6f87', '#5f6f7a'],
-  suburb: ['#c9a689', '#a8b8a0', '#b8a888', '#98a8b8', '#c0b090'],
-  beach: ['#e8d8b0', '#f0e0c0', '#d8c8a8'],
-  harbor: ['#7a8a99', '#8a7a6a', '#6a7a8a'],
-};
+function buildRoads() {
+  // Each road is an axis-aligned segment with a travel range.
+  const vertical = [
+    { x: 300, from: 140, to: 2500 },
+    { x: 700, from: 140, to: 3060 },
+    { x: 1100, from: 140, to: 3060 },
+    { x: 1500, from: 140, to: 3060 },
+    { x: 1900, from: 140, to: 3060 },
+    { x: 2300, from: 140, to: 3060 },
+    { x: 2620, from: 140, to: 3060 }, // beachfront avenue
+  ];
+  const horizontal = [
+    { y: 300, from: 140, to: 3060 },
+    { y: 700, from: 140, to: 3060 },
+    { y: 1100, from: 140, to: 3060 },
+    { y: 1500, from: 140, to: 3060 },
+    { y: 1900, from: 140, to: 3060 },
+    { y: 2300, from: 140, to: 3060 },
+    { y: 2700, from: 640, to: 3060 }, // skirts the harbor water
+  ];
+  return { vertical, horizontal };
+}
 
-// A road-graph node is an intersection {x, y}; adjacency is built once.
-function buildGraph() {
+function buildGraph(roads) {
   const nodes = new Map();
   const key = (x, y) => x + ',' + y;
-  for (const x of ROAD_V) for (const y of ROAD_H) nodes.set(key(x, y), { x, y, next: [] });
-  const link = (ax, ay, bx, by) => {
-    const na = nodes.get(key(ax, ay));
-    const nb = nodes.get(key(bx, by));
-    na.next.push(nb);
-    nb.next.push(na);
+  const add = (x, y) => {
+    const k = key(x, y);
+    if (!nodes.has(k)) nodes.set(k, { x, y, links: [] });
+    return nodes.get(k);
   };
-  for (const y of ROAD_H) {
-    const xs = [...ROAD_V].sort((a, b) => a - b);
-    for (let i = 0; i < xs.length - 1; i++) link(xs[i], y, xs[i + 1], y);
+  const link = (a, b) => {
+    if (!a.links.includes(b)) a.links.push(b);
+    if (!b.links.includes(a)) b.links.push(a);
+  };
+  for (const v of roads.vertical) {
+    const pts = [];
+    for (const h of roads.horizontal) {
+      if (h.from <= v.x && v.x <= h.to && v.from <= h.y && h.y <= v.to) pts.push(add(v.x, h.y));
+    }
+    pts.sort((a, b) => a.y - b.y);
+    for (let i = 0; i + 1 < pts.length; i++) link(pts[i], pts[i + 1]);
   }
-  for (const x of ROAD_V) {
-    const ys = [...ROAD_H].sort((a, b) => a - b);
-    for (let i = 0; i < ys.length - 1; i++) link(x, ys[i], x, ys[i + 1]);
+  for (const h of roads.horizontal) {
+    const pts = [];
+    for (const v of roads.vertical) {
+      if (v.from <= h.y && h.y <= v.to && h.from <= v.x && v.x <= h.to) pts.push(add(v.x, h.y));
+    }
+    pts.sort((a, b) => a.x - b.x);
+    for (let i = 0; i + 1 < pts.length; i++) link(pts[i], pts[i + 1]);
   }
-  return nodes;
-}
-export const GRAPH = buildGraph();
-export const NODES = [...GRAPH.values()];
-
-export function randomNode(rng) {
-  return NODES[Math.floor(rng() * NODES.length)];
-}
-export function nextNode(node, prev, rng) {
-  const opts = node.next.filter((n) => n !== prev);
-  return opts.length ? opts[Math.floor(rng() * opts.length)] : node.next[0];
-}
-// Closest point on any road centerline, plus which road it sits on.
-export function nearestRoad(x, y) {
-  let best = null;
-  for (const rx of ROAD_V) {
-    const py = clamp(y, 200, 3000);
-    const d = Math.hypot(x - rx, y - py);
-    if (!best || d < best.d) best = { x: rx, y: py, d, axis: 'v', at: rx };
-  }
-  for (const ry of ROAD_H) {
-    const px = clamp(x, 200, 3000);
-    const d = Math.hypot(x - px, y - ry);
-    if (!best || d < best.d) best = { x: px, y: ry, d, axis: 'h', at: ry };
-  }
-  return best;
-}
-export function onRoad(x, y) {
-  return nearestRoad(x, y).d <= ROAD_W / 2 + 4;
-}
-export function isWater(x, y) {
-  if (y > 3100) return true; // southern sea
-  if (x > 3080 && y > 300 && y < 1500) return true; // harbor basin
-  return false;
-}
-export function isBeach(x, y) {
-  return y >= 3000 && y <= 3100 && x >= 150 && x <= 3050;
-}
-export function districtAt(x, y) {
-  if (isWater(x, y)) return 'sea';
-  if (isBeach(x, y)) return 'beach';
-  if (x > 2550 && y < 1500) return 'harbor';
-  if (x >= 1000 && x <= 2200 && y >= 1000 && y <= 2200) return 'downtown';
-  if (x < 1000 && y < 1000) return 'suburbs';
-  if (y > 2550) return 'beachfront';
-  return 'midtown';
+  return { nodes, key };
 }
 
-// Buildings + containers + trees, generated from the seed. Blocks are the
-// cells between roads; each block holds 0-4 boxes. Parks stay empty.
-export function buildCity(seed) {
-  const rng = mulberry32(seed);
+export function buildCity() {
+  const rng = makeRng(20261119);
+  const roads = buildRoads();
+  const graph = buildGraph(roads);
+
+  // ---- buildings: downtown towers + suburban houses ----
   const buildings = [];
-  const trees = [];
-  const parks = new Set(['1,3', '3,1']);
-  const edges = [200, 700, 1300, 1900, 2500, 3000];
-  for (let bi = 0; bi < 5; bi++) {
-    for (let bj = 0; bj < 5; bj++) {
-      const x0 = edges[bi] + ROAD_W / 2 + 14;
-      const x1 = edges[bi + 1] - ROAD_W / 2 - 14;
-      const y0 = edges[bj] + ROAD_W / 2 + 14;
-      const y1 = edges[bj + 1] - ROAD_W / 2 - 14;
-      const cx = (x0 + x1) / 2;
-      const cy = (y0 + y1) / 2;
-      const district = districtAt(cx, cy);
-      if (parks.has(bi + ',' + bj)) {
-        for (let t = 0; t < 7; t++) trees.push({ x: rand(rng, x0 + 20, x1 - 20), y: rand(rng, y0 + 20, y1 - 20), r: rand(rng, 12, 20) });
-        continue;
+  const houses = [];
+  const vxs = [1100, 1500, 1900, 2300];
+  const hys = [300, 700, 1100, 1500];
+  for (let i = 0; i + 1 < vxs.length; i++) {
+    for (let j = 0; j + 1 < hys.length; j++) {
+      const bx = vxs[i] + 30, by = hys[j] + 30;
+      const bw = vxs[i + 1] - vxs[i] - 60, bh = hys[j + 1] - hys[j] - 60;
+      const n = randInt(rng, 1, 2);
+      for (let k = 0; k < n; k++) {
+        const w = n === 1 ? bw : bw / 2 - 8;
+        const h = n === 1 ? bh : bh - 8;
+        const x = bx + (n === 1 ? 0 : k * (bw / 2 + 8));
+        const y = by;
+        buildings.push({
+          x, y, w, h,
+          color: choice(rng, PALETTE),
+          roof: choice(rng, ['#2b2d42', '#3d405b', '#4a4e69']),
+          tall: rand(rng, 18, 64),
+          lit: rng(),
+          seed: rng(),
+        });
       }
-      if (district === 'harbor') {
-        for (let c = 0; c < 5; c++) {
-          buildings.push({ x: rand(rng, x0, x1 - 90), y: rand(rng, y0, y1 - 40), w: rand(rng, 60, 110), h: rand(rng, 26, 40), hgt: 1, color: choice(rng, ['#b0503c', '#3c78b0', '#c09030', '#4a9a5a']), kind: 'container' });
-        }
-        continue;
-      }
-      if (district === 'beachfront' || district === 'beach') {
-        buildings.push({ x: x0 + 40, y: y0 + 30, w: x1 - x0 - 80, h: rand(rng, 90, 140), hgt: randi(rng, 3, 6), color: choice(rng, PALETTES.beach), kind: 'hotel' });
-        for (let t = 0; t < 4; t++) trees.push({ x: rand(rng, x0 + 20, x1 - 20), y: y1 - rand(rng, 10, 50), r: rand(rng, 10, 16) });
-        continue;
-      }
-      const tall = district === 'downtown';
-      const n = tall ? randi(rng, 2, 3) : randi(rng, 3, 5);
-      const pal = tall ? PALETTES.downtown : PALETTES.suburb;
-      for (let i = 0; i < n; i++) {
-        const w = tall ? rand(rng, 120, 200) : rand(rng, 70, 130);
-        const h = tall ? rand(rng, 120, 200) : rand(rng, 60, 110);
-        const bx = rand(rng, x0, Math.max(x0 + 1, x1 - w));
-        const by = rand(rng, y0, Math.max(y0 + 1, y1 - h));
-        buildings.push({ x: bx, y: by, w, h, hgt: tall ? randi(rng, 4, 9) : randi(rng, 1, 2), color: choice(rng, pal), kind: tall ? 'tower' : 'house' });
-      }
-      for (let t = 0; t < (tall ? 1 : 3); t++) trees.push({ x: rand(rng, x0 + 16, x1 - 16), y: rand(rng, y0 + 16, y1 - 16), r: rand(rng, 10, 16) });
     }
   }
-  return { buildings, trees };
-}
-// First solid hit for a circle, or null. Water also blocks cars (not feet).
-export function hitSolid(city, x, y, r, isCar) {
-  for (const b of city.buildings) {
-    const nx = clamp(x, b.x, b.x + b.w);
-    const ny = clamp(y, b.y, b.y + b.h);
-    if ((x - nx) * (x - nx) + (y - ny) * (y - ny) < r * r) return b;
+  // Downtown fringe towers along the avenues.
+  for (const [x, y, w, h] of [
+    [2360, 340, 120, 180], [2360, 760, 120, 220], [2360, 1180, 120, 180],
+    [980, 340, 90, 150], [980, 1180, 90, 150], [1560, 1560, 130, 130],
+  ]) {
+    buildings.push({ x, y, w, h, color: choice(rng, PALETTE), roof: '#2b2d42', tall: rand(rng, 30, 70), lit: rng(), seed: rng() });
   }
-  if (isCar && isWater(x, y)) return { water: true };
-  return null;
-}
-// Push a circle out of every solid it overlaps. Returns true if it hit.
-export function resolveSolids(city, e, r, isCar) {
-  let hit = false;
-  for (const b of city.buildings) {
-    const nx = clamp(e.x, b.x, b.x + b.w);
-    const ny = clamp(e.y, b.y, b.y + b.h);
-    let dx = e.x - nx;
-    let dy = e.y - ny;
-    const d2 = dx * dx + dy * dy;
-    if (d2 >= r * r) continue;
-    hit = true;
-    if (d2 === 0) { e.y = b.y - r; continue; }
-    const d = Math.sqrt(d2);
-    dx /= d; dy /= d;
-    e.x = nx + dx * r;
-    e.y = ny + dy * r;
+  // Suburban houses with gardens.
+  for (let gx = 340; gx < 1060; gx += 120) {
+    for (let gy = 1560; gy < 2260; gy += 130) {
+      if (rng() < 0.22) continue;
+      houses.push({
+        x: gx + rand(rng, 0, 30), y: gy + rand(rng, 0, 30), w: 52, h: 40,
+        color: choice(rng, ['#ffafcc', '#ffc8dd', '#cdb4db', '#bde0fe', '#fdffb6', '#caffbf']),
+        roof: choice(rng, ['#b23a48', '#7f4f24', '#335c67']),
+      });
+    }
   }
-  if (isCar && isWater(e.x, e.y)) { hit = true; }
-  return hit;
+
+  // ---- parks, palms, umbrellas ----
+  const parks = [
+    { x: 2360, y: 1620, w: 300, h: 220 },
+    { x: 760, y: 360, w: 260, h: 200 },
+    { x: 1620, y: 2360, w: 320, h: 240 },
+  ];
+  const palms = [];
+  for (let y = 220; y < 3000; y += randInt(rng, 90, 150)) {
+    palms.push({ x: rand(rng, 2680, 2740), y, sway: rand(rng, 0, 6) });
+    if (rng() < 0.6) palms.push({ x: rand(rng, 2840, 2920), y: y + rand(rng, -30, 30), sway: rand(rng, 0, 6) });
+  }
+  for (const p of parks) {
+    for (let i = 0; i < 7; i++) palms.push({ x: rand(rng, p.x + 20, p.x + p.w - 20), y: rand(rng, p.y + 20, p.y + p.h - 20), sway: rand(rng, 0, 6) });
+  }
+  const umbrellas = [];
+  for (let i = 0; i < 14; i++) {
+    umbrellas.push({ x: rand(rng, 2700, 2920), y: rand(rng, 300, 2900), color: choice(rng, PALETTE) });
+  }
+
+  // ---- harbor: containers, cranes, docks ----
+  const containers = [];
+  for (let gx = 740; gx < 1060; gx += 70) {
+    for (let gy = 2540; gy < 2960; gy += 60) {
+      if (rng() < 0.3) continue;
+      containers.push({ x: gx, y: gy, w: 58, h: 26, color: choice(rng, PALETTE), stack: rng() < 0.4 });
+    }
+  }
+  const cranes = [
+    { x: 660, y: 2560, h: 150 }, { x: 660, y: 2900, h: 170 },
+  ];
+
+  // ---- traffic lights at downtown intersections ----
+  const lights = [];
+  for (const n of graph.nodes.values()) {
+    if (n.x >= 1100 && n.x <= 2300 && n.y >= 300 && n.y <= 1500) {
+      lights.push({ x: n.x, y: n.y, offset: rand(rng, 0, 12) });
+    }
+  }
+
+  const city = {
+    size: WORLD,
+    roads,
+    graph,
+    buildings,
+    houses,
+    parks,
+    palms,
+    umbrellas,
+    containers,
+    cranes,
+    lights,
+    sea: { x0: 2960 },
+    sand: { x0: 2660, x1: 2960 },
+    harborWater: { x: 120, y: 2500, w: 500, h: 580 },
+    locations: {
+      safehouse: { x: 1500, y: 1440, name: "Vera's Garage" },
+      hotel: { x: 2820, y: 620, name: 'Azura Grand Hotel' },
+      marina: { x: 2720, y: 1180, name: 'Marina' },
+      docks: { x: 680, y: 2780, name: 'Harbor Docks' },
+      tower: { x: 1900, y: 660, name: 'Meridian Tower' },
+      bank: { x: 1500, y: 900, name: 'Azura National Bank' },
+      vault: { x: 1900, y: 1060, name: 'Meridian Vault' },
+      boat: { x: 2880, y: 2180, name: 'Escape Boat' },
+      drops: [
+        { x: 760, y: 760, name: 'Drop 1 — Coral Court' },
+        { x: 2340, y: 1940, name: 'Drop 2 — Palm Row' },
+        { x: 1160, y: 2740, name: 'Drop 3 — Dockside' },
+      ],
+    },
+  };
+  return city;
+}
+
+// ---- queries used by gameplay ----
+
+export function isWater(city, x, y) {
+  if (x >= city.sea.x0) return true;
+  const hw = city.harborWater;
+  return x >= hw.x && x <= hw.x + hw.w && y >= hw.y && y <= hw.y + hw.h;
+}
+
+export function collideWorld(city, x, y, r) {
+  // Buildings, houses, containers and cranes push circles out.
+  for (const b of city.buildings) {
+    const c = resolveCircleBox(x, y, r, b.x, b.y, b.w, b.h);
+    if (c) { x = c.x; y = c.y; }
+  }
+  for (const h of city.houses) {
+    const c = resolveCircleBox(x, y, r, h.x, h.y, h.w, h.h);
+    if (c) { x = c.x; y = c.y; }
+  }
+  for (const ctn of city.containers) {
+    const c = resolveCircleBox(x, y, r, ctn.x, ctn.y, ctn.w, ctn.h);
+    if (c) { x = c.x; y = c.y; }
+  }
+  for (const cr of city.cranes) {
+    const c = resolveCircleBox(x, y, r, cr.x - 14, cr.y - 14, 28, 28);
+    if (c) { x = c.x; y = c.y; }
+  }
+  x = clamp(x, 60, WORLD - 60);
+  y = clamp(y, 60, WORLD - 60);
+  return { x, y };
+}
+
+export function nearestRoadPoint(city, x, y) {
+  let best = null, bd = Infinity;
+  for (const v of city.roads.vertical) {
+    if (y < v.from || y > v.to) continue;
+    const d = Math.abs(x - v.x);
+    if (d < bd) { bd = d; best = { x: v.x, y }; }
+  }
+  for (const h of city.roads.horizontal) {
+    if (x < h.from || x > h.to) continue;
+    const d = Math.abs(y - h.y);
+    if (d < bd) { bd = d; best = { x, y: h.y }; }
+  }
+  return best || { x: 1500, y: 1500 };
+}
+
+export function randomGraphNode(city, rng) {
+  const arr = [...city.graph.nodes.values()];
+  return arr[Math.floor(rng() * arr.length)];
+}
+
+export function pointInBuilding(city, x, y) {
+  for (const b of city.buildings) if (pointInBox(x, y, b.x, b.y, b.w, b.h)) return true;
+  for (const h of city.houses) if (pointInBox(x, y, h.x, h.y, h.w, h.h)) return true;
+  return false;
+}
+
+// Traffic-light state at an intersection: 0 = NS green, 1 = NS yellow, 2 = EW green, 3 = EW yellow.
+export function lightState(light, time) {
+  const t = (time + light.offset) % 13;
+  if (t < 5.5) return 0;
+  if (t < 7) return 1;
+  if (t < 11.5) return 2;
+  return 3;
 }

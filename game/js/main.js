@@ -1,336 +1,421 @@
-// Solmar Heat: game loop, state machine, save/load, debug hooks and the
-// ?shot= staging the screenshot harness uses. Owns the state G every other
-// module reads. No network, no libraries: canvas + ES modules only.
-import { clamp, lerp, fmtMoney } from './util.js';
-import { WORLD, buildCity, PLACES, nearestRoad } from './city.js';
-import { SoundEngine } from './audio.js';
+// Azura Bay — game loop, state machine, HUD, save, screenshot staging.
+// Written fresh for the gta6-01 round-3 entry.
+
+import { buildCity } from './city.js';
 import { Input } from './input.js';
+import { AudioSys } from './audio.js';
+import { drawGame, drawMinimap, buildStaticLayer, buildMiniBase } from './render.js';
 import {
-  CAR_COLORS, makeCar, spawnTraffic, spawnParked, spawnPeds, spawnPickups,
-  updatePlayer, updateTraffic, updatePeds, updateCops, updateGang,
-  updatePickups, updateParticles, damagePlayer, exitCar,
+  makePlayer, updatePlayer, damagePlayer, addWanted, spawnTraffic, updateTraffic,
+  spawnPeds, updatePeds, scarePeds, updatePolice, updateGuards, updateBullets,
+  updatePickups, spawnSmoke, spawnExplosion, updateParticles,
 } from './entities.js';
-import { MissionManager, MISSIONS } from './missions.js';
-import { drawWorld, drawEntities, drawMinimap, updateHUD } from './render.js';
+import { makeMissions, missionTitle, currentObjective, updateMissions, onSportCarStolen } from './missions.js';
+import { clamp, formatMoney, formatClock } from './util.js';
 
-const SAVE_KEY = 'solmar_heat_save';
-const params = new URLSearchParams(location.search);
-const SEED = Number(params.get('seed') || '1') || 1;
-const SHOT = params.get('shot') || '';
+const $ = (id) => document.getElementById(id);
 
-window.__errors = [];
-window.addEventListener('error', (e) => window.__errors.push(String(e.message || e.error)));
-window.addEventListener('unhandledrejection', (e) => window.__errors.push('rejection: ' + String(e.reason)));
-
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-
-const G = {
-  state: 'menu',
-  time: 0,
-  clock: 18 * 60,
-  seed: SEED,
-  city: buildCity(SEED),
-  rng: Math.random,
-  sound: new SoundEngine(),
-  input: new Input(),
-  player: null,
-  cars: [],
-  cops: [],
-  peds: [],
-  gang: [],
-  pickups: [],
-  particles: [],
-  tracers: [],
-  wanted: 0,
-  crimeTimer: 0,
-  bustT: 0,
-  surroundT: 0,
-  shootCd: 0,
-  cashTimer: 30,
-  missionsDone: 0,
-  score: 0,
-  camera: { x: 1600, y: 1600, shake: 0 },
-  freeRoam: false,
-  toasts: [],
-  save: { best: 0, furthest: 1 },
-  missionMgr: null,
-  MISSIONS,
-  goldCar: null,
-  autoDrive: false,
-  shotMode: SHOT,
-};
-G.toast = (text) => G.toasts.push({ text, at: G.time });
-G.saveGame = () => {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(G.save)); } catch {}
-};
-try {
-  const raw = localStorage.getItem(SAVE_KEY);
-  if (raw) { const s = JSON.parse(raw); if (s && typeof s.best === 'number') G.save = s; }
-} catch {}
-G.missionMgr = new MissionManager(G);
-
-function resetWorld() {
-  G.cars = spawnTraffic(G.city, Math.random, 16);
-  G.cars.push(...spawnParked(G.city, Math.random, 10, [PLACES.spawn]));
-  const gold = makeCar(PLACES.goldcar.x, PLACES.goldcar.y, 0, '#ffd700', 'gold');
-  G.cars.push(gold);
-  G.goldCar = gold;
-  G.peds = spawnPeds(G.city, Math.random, 34);
-  G.pickups = spawnPickups(G.city, Math.random);
-  G.cops = [];
-  G.gang = [];
-  G.particles = [];
-  G.tracers = [];
-  G.wanted = 0; G.crimeTimer = 0; G.bustT = 0; G.surroundT = 0;
-  G.cashTimer = 30;
-  G.freeRoam = false;
-  G.autoDrive = false;
-}
-function resetPlayer() {
-  G.player = {
-    x: PLACES.spawn.x, y: PLACES.spawn.y, angle: -Math.PI / 2, speed: 0,
-    onFoot: true, car: null, health: 100, money: 0, kills: 0, lastHurt: -99,
+function freshState(city) {
+  return {
+    city,
+    player: makePlayer(city),
+    traffic: spawnTraffic(city, 16),
+    peds: spawnPeds(city, 34),
+    policeCars: [],
+    footCops: [],
+    guards: [],
+    bullets: [],
+    particles: [],
+    pickups: [
+      { kind: 'medkit', x: 2440, y: 1700 },
+      { kind: 'medkit', x: 900, y: 500 },
+      { kind: 'medkit', x: 1500, y: 2100 },
+      { kind: 'cash', x: 1900, y: 1500 },
+      { kind: 'cash', x: 700, y: 1900 },
+    ],
+    sportCar: { x: city.locations.marina.x, y: city.locations.marina.y, angle: 0.4, color: '#ff2e4d', kind: 'sport', sport: true, taken: false, speed: 0 },
+    parkedCar: null,
+    missions: makeMissions(),
+    missionsCompleted: 0,
+    money: 0,
+    wanted: 0,
+    lastCrime: -99,
+    bustTimer: 0,
+    time: 0,
+    state: 'title',
+    loseReason: '',
+    camera: { x: 1600, y: 1600, zoom: 1 },
+    view: { w: 1280, h: 800 },
+    lastLand: { x: city.locations.safehouse.x, y: city.locations.safehouse.y },
+    objective: null,
+    startedAt: 0,
   };
 }
-function newGame() {
-  resetWorld();
-  resetPlayer();
-  G.missionsDone = 0;
-  G.score = 0;
-  G.clock = 18 * 60;
-  G.missionMgr.start(0);
-  G.state = 'playing';
-  G.sound.init();
-  G.sound.startMusic();
-  G.camera.x = G.player.x; G.camera.y = G.player.y;
-}
-function continueGame() {
-  newGame();
-  const idx = Math.max(0, Math.min(5, (G.save.furthest || 1) - 1));
-  G.missionMgr.start(idx);
-  G.toast('Continuing at mission ' + (idx + 1));
-}
-function restartMission() {
-  resetWorld();
-  resetPlayer();
-  G.player.money = G._keptMoney || 0;
-  G.missionMgr.restartCurrent();
-  G.state = 'playing';
-  G.camera.x = G.player.x; G.camera.y = G.player.y;
-}
-function toMenu() {
-  G.state = 'menu';
-  G.sound.setSiren(0);
-  G.sound.setEngine(0, false);
-}
-function setBusted() {
-  if (G.state !== 'playing') return;
-  if (G.player.car) { G.player.car = null; G.player.onFoot = true; }
-  G.state = 'busted';
-  G.sound.busted();
-  G.sound.setSiren(0);
-  G.sound.setEngine(0, false);
-}
-function setWasted() {
-  if (G.state !== 'playing') return;
-  G.state = 'wasted';
-  G.sound.wasted();
-  G.sound.setSiren(0);
-  G.sound.setEngine(0, false);
-}
-function setWin() {
-  G.state = 'win';
-  G.sound.win();
-  G.sound.setSiren(0);
-  G.sound.setEngine(0, false);
-  if (G.player.money > (G.save.best || 0)) { G.save.best = G.player.money; G.saveGame(); }
-}
 
-// --- debug hooks (also what the verification harness drives) ---------------
-window.__game = {
-  get state() { return G.state; },
-  get wanted() { return G.wanted; },
-  get money() { return G.player ? G.player.money : 0; },
-  get health() { return G.player ? G.player.health : 0; },
-  get missionsDone() { return G.missionsDone; },
-  get score() { return G.score; },
-  get player() { return G.player; },
-  get errors() { return window.__errors; },
-  warp(x, y) {
-    const p = G.player;
-    if (!p) return;
-    p.x = clamp(x, 30, WORLD - 30);
-    p.y = clamp(y, 30, WORLD - 30);
-    if (p.car) { p.car.x = p.x; p.car.y = p.y; p.car.speed = 0; }
-    G.bustT = 0; G.surroundT = 0;
-    G.camera.x = p.x; G.camera.y = p.y;
-  },
-  giveCar(color) {
-    const p = G.player;
-    if (!p) return null;
-    const c = makeCar(p.x + 40, p.y, p.angle, color || '#e74c3c', 'parked');
-    G.cars.push(c);
-    p.car = c; p.onFoot = false;
-    p.x = c.x; p.y = c.y; p.angle = c.angle;
-    return c;
-  },
-  setWanted(n) { G.wanted = clamp(n, 0, 5); G.crimeTimer = 0; },
-  setHealth(n) { if (G.player) G.player.health = clamp(n, 0, 100); },
-  startMission(i) {
-    if (G.state === 'menu' || G.state === 'busted' || G.state === 'wasted') { G.state = 'playing'; }
-    if (!G.player) resetPlayer();
-    G.missionMgr.start(clamp(i, 0, 5));
-  },
-  completeMission() { G.missionMgr.completeMission(); },
-  mission() {
-    const m = G.missionMgr.current();
-    const s = G.missionMgr.step();
-    const mk = G.missionMgr.marker();
-    return m ? { id: m.id, name: m.name, reward: m.reward, step: s ? s.type : null, label: s ? s.label : null, marker: mk, timer: G.missionMgr.timer, hold: G.missionMgr.hold } : null;
-  },
-  forceBusted() { setBusted(); },
-  forceWasted() { if (G.player) G.player.health = 0; setWasted(); },
-  newGame, toMenu,
-};
-
-// --- input: buttons + keys ---------------------------------------------------
-document.getElementById('btn-new').addEventListener('click', () => { G.sound.init(); G.sound.click(); newGame(); });
-document.getElementById('btn-continue').addEventListener('click', () => { G.sound.init(); G.sound.click(); continueGame(); });
-document.getElementById('btn-how').addEventListener('click', () => { G.sound.click(); document.getElementById('howto').classList.toggle('open'); });
-document.getElementById('btn-menu').addEventListener('click', () => { G.sound.click(); toMenu(); });
-document.getElementById('btn-retry').addEventListener('click', () => { G.sound.click(); G._keptMoney = G.player.money; restartMission(); });
-document.getElementById('btn-retry2').addEventListener('click', () => { G.sound.click(); G._keptMoney = G.player.money; restartMission(); });
-document.getElementById('btn-win-menu').addEventListener('click', () => { G.sound.click(); toMenu(); });
-document.getElementById('btn-win-again').addEventListener('click', () => { G.sound.click(); newGame(); });
-canvas.addEventListener('click', () => G.sound.init());
-window.addEventListener('blur', () => { if (G.state === 'playing') G.state = 'paused'; });
-
-function handleKeys() {
-  const inp = G.input;
-  if (inp.wasPressed('KeyN')) {
-    G.sound.setMuted(!G.sound.muted);
-    G.toast(G.sound.muted ? 'Sound off' : 'Sound on');
+class Game {
+  constructor() {
+    this.city = buildCity();
+    buildStaticLayer(this.city);
+    buildMiniBase(this.city);
+    Object.assign(this, freshState(this.city));
+    this.input = new Input();
+    this.audio = new AudioSys();
+    this.canvas = $('game');
+    this.ctx = this.canvas.getContext('2d');
+    this.minimapCanvas = $('minimap');
+    this.best = this.loadBest();
+    this.toasts = [];
+    this.last = performance.now();
+    this.titlePan = 0;
+    this.wantedDecay = 0;
+    this.setupOverlays();
+    this.applyShotParam();
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+    window.__game = this.debugApi();
+    requestAnimationFrame((t) => this.frame(t));
   }
-  if (G.state === 'playing') {
-    if (inp.wasPressed('KeyP')) { G.state = 'paused'; return; }
-    if (inp.wasPressed('KeyM')) { G.state = 'panel'; return; }
-    if (inp.wasPressed('KeyF')) {
-      G.freeRoam = !G.freeRoam;
-      G.toast(G.freeRoam ? 'Free roam — jobs paused' : 'Back on the job');
+
+  loadBest() {
+    try {
+      const raw = localStorage.getItem('azura-bay-save');
+      if (raw) return JSON.parse(raw);
+    } catch (e) { /* fresh save */ }
+    return { bestScore: 0, bestMoney: 0 };
+  }
+
+  saveBest() {
+    const score = this.score();
+    if (score > this.best.bestScore) this.best.bestScore = score;
+    if (this.money > this.best.bestMoney) this.best.bestMoney = this.money;
+    try { localStorage.setItem('azura-bay-save', JSON.stringify(this.best)); } catch (e) { /* no storage */ }
+  }
+
+  score() { return Math.floor(this.money + this.missionsCompleted * 250); }
+
+  setupOverlays() {
+    $('start-btn').addEventListener('click', () => this.startGame());
+    $('continue-btn').addEventListener('click', () => this.startGame());
+    $('restart-btn').addEventListener('click', () => this.reset());
+    $('resume-btn').addEventListener('click', () => { this.state = 'play'; this.syncOverlays(); });
+    $('end-restart-btn').addEventListener('click', () => this.reset());
+    if (this.best.bestScore > 0) {
+      $('continue-btn').style.display = 'inline-block';
+      $('best-line').textContent = 'Best score ' + this.best.bestScore + ' · Best cash ' + formatMoney(this.best.bestMoney);
+    }
+  }
+
+  applyShotParam() {
+    const shot = new URLSearchParams(location.search).get('shot');
+    this.shotMode = shot || null;
+    if (!shot) return;
+    if (shot === 'start') { this.state = 'title'; return; }
+    if (shot === 'play' || shot === 'wanted') {
+      this.startGame(true);
+      const p = this.player;
+      // Play shot: driving south toward the garage marker, which stays in
+      // frame below the car so the mission reads at a glance.
+      const car = { x: 1500, y: 1250, angle: Math.PI / 2, speed: 0, color: '#ffa502', kind: 'player', hp: 3 };
+      p.car = car; p.onFoot = false; p.x = car.x; p.y = car.y;
+      this.missions.index = 1; this.missions.stage = 1;
+      this.money = 400; this.missionsCompleted = 0;
+      if (shot === 'wanted') {
+        this.wanted = 3;
+        this.lastCrime = this.time; // staged heat starts fresh, no instant decay
+        this.missions.index = 3; this.missions.stage = 2;
+        // Stage the chase far from the safehouse objective so police rams
+        // can never shove the car into the marker by themselves. The car
+        // drives west on the avenue with the chase behind it.
+        p.car.x = 1900; p.car.y = 1100; p.x = 1900; p.y = 1100;
+        p.car.angle = Math.PI; p.angle = Math.PI; p.car.speed = 380;
+        for (let i = 0; i < 3; i++) {
+          const a = (i / 3) * Math.PI * 2;
+          this.policeCars.push({ x: p.x + Math.cos(a) * 260, y: p.y + Math.sin(a) * 260, angle: a, speed: 200, color: '#111827', kind: 'police', siren: 0 });
+        }
+        spawnSmoke(this, p.x, p.y, 10);
+      }
       return;
     }
-    if (inp.wasPressed('KeyR')) { G._keptMoney = G.player.money; restartMission(); return; }
-  } else if (G.state === 'paused') {
-    if (inp.wasPressed('KeyP')) G.state = 'playing';
-  } else if (G.state === 'panel') {
-    if (inp.wasPressed('KeyM') || inp.wasPressed('Escape')) G.state = 'playing';
-  } else if (G.state === 'busted' || G.state === 'wasted') {
-    if (inp.wasPressed('KeyR')) { G._keptMoney = G.player.money; restartMission(); }
-  } else if (G.state === 'win') {
-    if (inp.wasPressed('KeyR')) newGame();
-  } else if (G.state === 'menu') {
-    if (inp.wasPressed('Enter')) newGame();
+    if (shot === 'end') {
+      this.startGame(true);
+      this.money = 9500; this.missionsCompleted = 6;
+      this.missions.done = true; this.missions.index = 6;
+      this.player.x = this.city.locations.boat.x;
+      this.player.y = this.city.locations.boat.y;
+      this.win(true);
+      // Frame the escape: sea and beach on the right, boat in view.
+      this.camera.x = 2920; this.camera.y = 2180; this.camera.zoom = 0.9;
+    }
+  }
+
+  startGame(silent) {
+    if (this.state === 'play') return;
+    this.state = 'play';
+    this.audio.ensure();
+    this.syncOverlays();
+    if (!silent) this.toast('Welcome to Azura Bay — follow the gold marker!');
+  }
+
+  reset() {
+    const keepCity = this.city;
+    const fresh = freshState(keepCity);
+    for (const k of Object.keys(fresh)) this[k] = fresh[k];
+    this.state = 'play';
+    this.audio.ensure();
+    this.syncOverlays();
+    this.toast('Fresh start — good luck, Milo!');
+  }
+
+  win(staged) {
+    if (this.state === 'win') return;
+    this.state = 'win';
+    this.saveBest();
+    this.audio.missionDone();
+    if (!staged) spawnExplosion(this, this.player.x, this.player.y);
+    this.syncOverlays();
+  }
+
+  lose(reason) {
+    if (this.state !== 'play') return;
+    this.state = 'lose';
+    this.loseReason = reason;
+    this.saveBest();
+    this.audio.busted();
+    this.syncOverlays();
+  }
+
+  addMoney(n) {
+    this.money += n;
+    if (n > 0) this.audio.cash();
+  }
+
+  toast(text) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = text;
+    $('hud-toasts').appendChild(el);
+    this.toasts.push({ el, at: this.time });
+    while ($('hud-toasts').children.length > 4) $('hud-toasts').firstChild.remove();
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 5200);
+  }
+
+  syncOverlays() {
+    $('title-screen').style.display = this.state === 'title' ? 'flex' : 'none';
+    $('pause-screen').style.display = this.state === 'paused' ? 'flex' : 'none';
+    $('end-screen').style.display = (this.state === 'win' || this.state === 'lose') ? 'flex' : 'none';
+    $('hud').style.display = this.state === 'play' || this.state === 'paused' ? 'block' : 'none';
+    if (this.state === 'win') {
+      $('end-title').textContent = 'THE BIG SCORE — YOU WIN!';
+      $('end-sub').textContent = 'Milo sails off with ' + formatMoney(this.money) + ' · Score ' + this.score() + ' · Best ' + this.best.bestScore;
+      $('end-title').style.color = '#ffd166';
+    } else if (this.state === 'lose') {
+      $('end-title').textContent = this.loseReason === 'busted' ? 'BUSTED!' : 'WASTED!';
+      $('end-sub').textContent = this.loseReason === 'busted'
+        ? 'The Azura Bay PD finally caught up with you.'
+        : 'Milo went down in the streets of Azura Bay.';
+      $('end-title').style.color = '#ff4757';
+    }
+  }
+
+  resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    this.view.w = w; this.view.h = h;
+    this.canvas.width = w; this.canvas.height = h;
+  }
+
+  clampCamera() {
+    // Never show the page background past the world's edge.
+    const hw = this.view.w / 2 / this.camera.zoom;
+    const hh = this.view.h / 2 / this.camera.zoom;
+    this.camera.x = clamp(this.camera.x, hw, 3200 - hw);
+    this.camera.y = clamp(this.camera.y, hh, 3200 - hh);
+  }
+
+  frame(now) {
+    const dt = Math.min(0.05, (now - this.last) / 1000 || 0.016);
+    this.last = now;
+    this.update(dt);
+    this.render();
+    this.input.endFrame();
+    requestAnimationFrame((t) => this.frame(t));
+  }
+
+  update(dt) {
+    if (this.state === 'title') {
+      this.titlePan += dt * 0.02;
+      // Slow orbit over downtown so the cover shows towers, not suburbs.
+      this.camera.x = 1950 + Math.sin(this.titlePan) * 450;
+      this.camera.y = 950 + Math.cos(this.titlePan * 0.7) * 300;
+      this.camera.zoom = 0.62;
+      this.clampCamera();
+      this.time += dt;
+      if (this.input.hit('enter') || this.input.anyKey && this.input.mouse.down) this.startGame();
+      return;
+    }
+    if (this.state === 'paused') {
+      if (this.input.hit('p', 'escape')) { this.state = 'play'; this.syncOverlays(); }
+      return;
+    }
+    if (this.state === 'win' || this.state === 'lose') {
+      if (this.input.hit('r')) this.reset();
+      this.time += dt;
+      updateParticles(this, dt);
+      this.clampCamera();
+      return;
+    }
+
+    // --- play ---
+    this.time += dt;
+    if (this.input.hit('p', 'escape')) { this.state = 'paused'; this.syncOverlays(); return; }
+    if (this.input.hit('n')) { const m = this.audio.toggleMute(); this.toast(m ? 'Sound off' : 'Sound on'); }
+    if (this.input.hit('m')) {
+      const mp = $('mission-panel');
+      mp.style.display = mp.style.display === 'block' ? 'none' : 'block';
+      this.renderMissionPanel();
+    }
+    if (this.input.hit('f')) {
+      this.missions.freeRoam = !this.missions.freeRoam;
+      this.toast(this.missions.freeRoam ? 'Free roam — no missions, just the city' : 'Missions back on');
+    }
+
+    updatePlayer(this, dt);
+    updateTraffic(this, dt);
+    updatePeds(this, dt);
+    updatePolice(this, dt);
+    updateGuards(this, dt);
+    updateBullets(this, dt);
+    updatePickups(this, dt);
+    updateParticles(this, dt);
+    updateMissions(this, dt);
+
+    // Wanted decay: 10s clean, then one star per 8s.
+    if (this.wanted > 0 && this.time - this.lastCrime > 10) {
+      this.wantedDecay += dt;
+      if (this.wantedDecay > 8) { this.wantedDecay = 0; this.wanted--; this.toast('Heat cooling off — wanted ' + this.wanted); }
+    } else this.wantedDecay = 0;
+
+    // Sports-car steal advances mission 2.
+    if (this.sportCar.taken && this.missions.index === 1 && this.missions.stage === 0) {
+      onSportCarStolen(this);
+    }
+
+    // Camera follows the player with a little lookahead.
+    const p = this.player;
+    const look = p.onFoot ? 0 : clamp(Math.abs(p.speed) / 500, 0, 1) * 90;
+    const tx = p.x + Math.cos(p.angle) * look;
+    const ty = p.y + Math.sin(p.angle) * look;
+    this.camera.x += (tx - this.camera.x) * Math.min(1, 5 * dt);
+    this.camera.y += (ty - this.camera.y) * Math.min(1, 5 * dt);
+    const targetZoom = p.onFoot ? 1 : clamp(1 - Math.abs(p.speed) / 2400, 0.8, 1);
+    this.camera.zoom += (targetZoom - this.camera.zoom) * Math.min(1, 2 * dt);
+    this.clampCamera();
+
+    // Car-to-car bumps. The player's car is heavy: a ram shoves the other
+    // car mostly, not the player — a parked player car must not drift.
+    const cars = [...this.traffic];
+    if (!p.onFoot && p.car) cars.push(p.car);
+    for (const c of this.policeCars) cars.push(c);
+    for (let i = 0; i < cars.length; i++) {
+      for (let j = i + 1; j < cars.length; j++) {
+        const a = cars[i], b = cars[j];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < 1600 && d2 > 0.01) {
+          const d = Math.sqrt(d2);
+          const overlap = 40 - d;
+          const fa = a === p.car ? 0.15 : b === p.car ? 0.85 : 0.5;
+          const fb = 1 - fa;
+          const nx = dx / d, ny = dy / d;
+          a.x -= nx * overlap * fa; a.y -= ny * overlap * fa;
+          b.x += nx * overlap * fb; b.y += ny * overlap * fb;
+        }
+      }
+    }
+
+    this.updateHud();
+  }
+
+  renderMissionPanel() {
+    const el = $('mission-list');
+    el.innerHTML = '';
+    for (let i = 0; i < 6; i++) {
+      const li = document.createElement('li');
+      const st = this.missions.done || i < this.missions.index ? '✓ DONE' : i === this.missions.index ? '▶ NOW' : '· LOCKED';
+      li.textContent = missionTitle(this.missions, i) + ' — ' + st;
+      li.className = i === this.missions.index && !this.missions.done ? 'now' : '';
+      el.appendChild(li);
+    }
+  }
+
+  updateHud() {
+    // Stars.
+    let stars = '';
+    for (let i = 0; i < 5; i++) stars += i < this.wanted ? '★' : '☆';
+    $('hud-stars').textContent = stars;
+    $('hud-stars').className = 'stars' + (this.wanted >= 3 ? ' hot' : '');
+    $('hud-money').textContent = formatMoney(this.money) + '  ·  Score ' + this.score();
+    $('hud-clock').textContent = formatClock(this.time);
+    $('hud-health-fill').style.width = clamp(this.player.health, 0, 100) + '%';
+    $('hud-health-fill').style.background = this.player.health > 50 ? '#2ed573' : this.player.health > 25 ? '#ffa502' : '#ff4757';
+    const obj = currentObjective(this);
+    this.objective = obj;
+    if (obj) {
+      $('hud-mission-title').textContent = missionTitle(this.missions, this.missions.index);
+      $('hud-mission-obj').textContent = obj.text;
+      $('hud-mission-timer').textContent = this.missions.timer > 0 ? formatClock(this.missions.timer) : '';
+      $('hud-mission-timer').style.color = this.missions.timer > 0 && this.missions.timer < 30 ? '#ff4757' : '#ffd166';
+    } else {
+      $('hud-mission-title').textContent = this.missions.done ? 'Story complete!' : 'Free Roam';
+      $('hud-mission-obj').textContent = this.missions.done ? 'You beat Azura Bay. Press R to play again.' : 'Explore the city — press F for missions.';
+      $('hud-mission-timer').textContent = '';
+    }
+    $('bust-warning').style.display = this.bustTimer > 0.25 ? 'block' : 'none';
+    $('hud-boost-fill').style.width = clamp(this.player.boost, 0, 100) + '%';
+    $('hud-boost').style.display = this.player.onFoot ? 'none' : 'block';
+  }
+
+  render() {
+    if (this.state === 'title') {
+      // Title screen shows the living city behind the overlay.
+      this.objective = null;
+      drawGame(this);
+      drawMinimap(this);
+      return;
+    }
+    drawGame(this);
+    drawMinimap(this);
+  }
+
+  debugApi() {
+    const self = this;
+    return {
+      get state() { return self.state; },
+      get wanted() { return self.wanted; },
+      get money() { return self.money; },
+      get mission() { return self.missions.index; },
+      get health() { return self.player.health; },
+      get player() { return { x: self.player.x, y: self.player.y, onFoot: self.player.onFoot }; },
+      get score() { return self.score(); },
+      teleport(x, y) { self.player.x = x; self.player.y = y; if (!self.player.onFoot && self.player.car) { self.player.car.x = x; self.player.car.y = y; } self.lastLand.x = x; self.lastLand.y = y; },
+      setWanted(n) { self.wanted = n; self.lastCrime = self.time; },
+      damage(n) { damagePlayer(self, n); },
+      addWanted(n) { addWanted(self, n); },
+      start() { self.startGame(); },
+      reset() { self.reset(); },
+      winNow() { self.missions.done = true; self.missions.index = 6; self.money = 9500; self.missionsCompleted = 6; self.win(); },
+      bustNow() { self.bustTimer = 9; self.lose('busted'); },
+      completeMission(i) { self.missions.index = i; self.missions.stage = 0; },
+      snapshot() {
+        return JSON.stringify({
+          state: self.state, wanted: self.wanted, money: self.money,
+          mission: self.missions.index, stage: self.missions.stage,
+          health: Math.round(self.player.health), score: self.score(),
+          x: Math.round(self.player.x), y: Math.round(self.player.y),
+          onFoot: self.player.onFoot,
+        });
+      },
+    };
   }
 }
 
-// --- main loop ----------------------------------------------------------------
-let last = performance.now();
-function frame(now) {
-  requestAnimationFrame(frame);
-  const dt = Math.min(0.05, (now - last) / 1000);
-  last = now;
-  G.time += dt;
-  handleKeys();
-  if (G.state === 'menu') {
-    updateTraffic(G, dt);
-    updatePeds(G, dt);
-    updateParticles(G, dt);
-    G.camera.x = clamp(1600 + Math.sin(G.time * 0.07) * 500, 700, 2500);
-    G.camera.y = clamp(1600 + Math.cos(G.time * 0.05) * 400, 700, 2500);
-  } else if (G.state === 'playing') {
-    if (G.autoDrive) G.input.down.add('KeyW');
-    G.clock += dt * 0.5;
-    G.shootCd = Math.max(0, G.shootCd - dt);
-    updatePlayer(G, dt);
-    updateTraffic(G, dt);
-    updatePeds(G, dt);
-    updateCops(G, dt);
-    updateGang(G, dt);
-    updatePickups(G, dt);
-    updateParticles(G, dt);
-    G.missionMgr.update(dt);
-    // Wanted decays after 25s without a crime.
-    G.crimeTimer += dt;
-    if (G.wanted > 0 && G.crimeTimer > 25) { G.wanted--; G.crimeTimer = 0; }
-    // End conditions.
-    if (G.player.health <= 0) setWasted();
-    else if (G.bustT > 1.2 || G.surroundT > 2.5) setBusted();
-    else if (G.missionMgr.done) setWin();
-    // Camera follows the player.
-    const p = G.player;
-    G.camera.x = clamp(lerp(G.camera.x, p.x, 1 - Math.pow(0.001, dt)), 640, WORLD - 640);
-    G.camera.y = clamp(lerp(G.camera.y, p.y, 1 - Math.pow(0.001, dt)), 400, WORLD - 400);
-    G.sound.setSiren(G.wanted);
-    G.sound.setEngine(p.car ? Math.abs(p.car.speed) / 520 : 0, !!p.car);
-  }
-  if (G.camera.shake > 0) G.camera.shake = Math.max(0, G.camera.shake - dt * 30);
-  const shx = G.camera.shake > 0 ? (Math.random() - 0.5) * G.camera.shake : 0;
-  const shy = G.camera.shake > 0 ? (Math.random() - 0.5) * G.camera.shake : 0;
-  ctx.save();
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.translate(-G.camera.x + canvas.width / 2 + shx, -G.camera.y + canvas.height / 2 + shy);
-  drawWorld(ctx, G);
-  drawEntities(ctx, G);
-  ctx.restore();
-  if (G.state === 'playing' || G.state === 'paused' || G.state === 'panel') drawMinimap(G);
-  updateHUD(G);
-  G.input.endFrame();
-}
-
-// --- ?shot= staging for screenshots -------------------------------------------
-function stageShot() {
-  if (!SHOT) return;
-  if (SHOT === 'start') {
-    G.state = 'menu';
-    G.camera.x = 1600; G.camera.y = 1600;
-    resetWorld();
-    resetPlayer();
-    return;
-  }
-  if (SHOT === 'play') {
-    newGame();
-    window.__game.warp(1600, 1300);
-    window.__game.giveCar('#e74c3c');
-    G.player.car.angle = 0;
-    G.player.car.speed = 260;
-    window.__game.setWanted(1);
-    G.autoDrive = true;
-    return;
-  }
-  if (SHOT === 'wanted') {
-    newGame();
-    window.__game.warp(1600, 1300);
-    window.__game.giveCar('#e74c3c');
-    G.player.car.angle = 0;
-    G.player.car.speed = 300;
-    window.__game.setWanted(5);
-    G.autoDrive = true;
-    return;
-  }
-  if (SHOT === 'end') {
-    newGame();
-    G.player.money = 9500;
-    G.score = 9500 + 600;
-    G.missionsDone = 6;
-    G.missionMgr.done = true;
-    setWin();
-    G.toasts = [];
-    G.camera.x = 1600; G.camera.y = 1600;
-    return;
-  }
-}
-resetWorld();
-resetPlayer();
-stageShot();
-requestAnimationFrame(frame);
+new Game();

@@ -1,39 +1,26 @@
-// Keyboard state: held keys plus edge-triggered presses consumed once per
-// frame. Also exposes the drive/foot control axes the game loop reads.
+// Azura Bay — keyboard + mouse input with edge detection.
+// Written fresh for the gta6-01 round-3 entry.
+
 export class Input {
   constructor() {
-    this.down = new Set();
+    this.keys = new Set();
     this.pressed = new Set();
+    this.mouse = { x: 0, y: 0, down: false };
     this.anyKey = false;
     window.addEventListener('keydown', (e) => {
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
-      if (!e.repeat) this.pressed.add(e.code);
-      this.down.add(e.code);
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+      if (!this.keys.has(e.key.toLowerCase())) this.pressed.add(e.key.toLowerCase());
+      this.keys.add(e.key.toLowerCase());
       this.anyKey = true;
     });
-    window.addEventListener('keyup', (e) => this.down.delete(e.code));
-    window.addEventListener('blur', () => { this.down.clear(); });
+    window.addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
+    window.addEventListener('blur', () => { this.keys.clear(); });
+    window.addEventListener('mousemove', (e) => { this.mouse.x = e.clientX; this.mouse.y = e.clientY; });
+    window.addEventListener('mousedown', () => { this.mouse.down = true; this.anyKey = true; });
+    window.addEventListener('mouseup', () => { this.mouse.down = false; });
   }
-  isDown(code) { return this.down.has(code); }
-  wasPressed(code) { return this.pressed.has(code); }
+
+  down(...names) { return names.some((n) => this.keys.has(n)); }
+  hit(...names) { return names.some((n) => this.pressed.has(n)); }
   endFrame() { this.pressed.clear(); this.anyKey = false; }
-  // On-foot movement axis, normalized.
-  moveAxis() {
-    let x = 0, y = 0;
-    if (this.isDown('KeyA') || this.isDown('ArrowLeft')) x -= 1;
-    if (this.isDown('KeyD') || this.isDown('ArrowRight')) x += 1;
-    if (this.isDown('KeyW') || this.isDown('ArrowUp')) y -= 1;
-    if (this.isDown('KeyS') || this.isDown('ArrowDown')) y += 1;
-    if (x && y) { x *= 0.7071; y *= 0.7071; }
-    return { x, y };
-  }
-  // Driving: throttle -1..1 (W/S), steer -1..1 (A/D).
-  driveAxis() {
-    let throttle = 0, steer = 0;
-    if (this.isDown('KeyW') || this.isDown('ArrowUp')) throttle += 1;
-    if (this.isDown('KeyS') || this.isDown('ArrowDown')) throttle -= 1;
-    if (this.isDown('KeyA') || this.isDown('ArrowLeft')) steer -= 1;
-    if (this.isDown('KeyD') || this.isDown('ArrowRight')) steer += 1;
-    return { throttle, steer };
-  }
 }

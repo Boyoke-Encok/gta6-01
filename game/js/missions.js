@@ -1,198 +1,174 @@
-// The six jobs, in order. A mission is a list of steps; a step is a place to
-// reach, a hold-E action, or a car to enter. The manager owns the current
-// mission/step, the timer and the hold progress; main.js wires the effects
-// (money, wanted, spawns) through the hooks below.
-import { dist } from './util.js';
-import { PLACES } from './city.js';
-import { commitCrime, spawnGang } from './entities.js';
+// Azura Bay — the six-mission story: Milo Reyes, getaway driver for Vera's crew.
+// Written fresh for the gta6-01 round-3 entry.
 
-export const MISSIONS = [
-  {
-    id: 1, name: 'First Fare', reward: 400,
-    briefing: 'Pick up the client downtown, then drop them at the hotel. You need a car for the drop-off.',
-    steps: [
-      { type: 'goto', at: 'taxi', label: 'Pick up the client', radius: 75 },
-      { type: 'goto', at: 'dropoff', label: 'Drop off the client', radius: 75, needCar: true },
-    ],
-  },
-  {
-    id: 2, name: 'Hot Wheels', reward: 600,
-    briefing: 'A gold coupe is parked uptown. Take it — then lose the heat at the chop shop.',
-    steps: [
-      { type: 'goto', at: 'goldcar', label: 'Find the gold coupe', radius: 90 },
-      { type: 'enter', at: 'goldcar', label: 'Steal the gold coupe', radius: 90 },
-      { type: 'goto', at: 'garage', label: 'Deliver to the chop shop', radius: 75, needCar: true },
-    ],
-  },
-  {
-    id: 3, name: 'Harbor Run', reward: 800,
-    briefing: 'Grab the package at the harbor pier, then run it downtown. Fast.',
-    steps: [
-      { type: 'goto', at: 'harbor', label: 'Pick up the package', radius: 75 },
-      { type: 'goto', at: 'downtown', label: 'Deliver the package', radius: 75, needCar: true },
-    ],
-  },
-  {
-    id: 4, name: 'Bank Job', reward: 1500,
-    briefing: 'Crack the bank safe — hold E for 3 seconds — then shake the heat and get home.',
-    steps: [
-      { type: 'goto', at: 'bank', label: 'Reach the bank', radius: 75 },
-      { type: 'hold', at: 'bank', label: 'Hold E to crack the safe', radius: 80, holdTime: 3 },
-      { type: 'goto', at: 'safehouse', label: 'Escape to the safehouse', radius: 90 },
-    ],
-  },
-  {
-    id: 5, name: "Kingpin's Errand", reward: 1200, timeLimit: 180,
-    briefing: 'Three stops, three minutes. Rooftop bar, beach cafe, boardwalk. Do not be late.',
-    steps: [
-      { type: 'goto', at: 'stop1', label: 'Stop 1: Rooftop bar', radius: 75 },
-      { type: 'goto', at: 'stop2', label: 'Stop 2: Beach cafe', radius: 75 },
-      { type: 'goto', at: 'stop3', label: 'Stop 3: Boardwalk', radius: 75 },
-    ],
-  },
-  {
-    id: 6, name: 'The Big Score', reward: 5000,
-    briefing: 'The vault. Four guards. A five-star tail. Crack it, then run home.',
-    steps: [
-      { type: 'goto', at: 'vault', label: 'Reach the vault', radius: 75 },
-      { type: 'hold', at: 'vault', label: 'Hold E to crack the vault', radius: 80, holdTime: 3 },
-      { type: 'goto', at: 'safehouse', label: 'Escape to the safehouse', radius: 90 },
-    ],
-  },
-];
+import { dist, formatMoney } from './util.js';
 
-export class MissionManager {
-  constructor(G) {
-    this.G = G;
-    this.index = 0;
-    this.stepIdx = 0;
-    this.timer = Infinity;
-    this.hold = 0;
-    this.done = false;
-    this.hintT = 0;
-    this.stepStarted = false;
+const MONEY = [400, 600, 800, 1500, 1200, 5000];
+
+export function makeMissions() {
+  return {
+    index: 0,            // 0..5, or 6 when the story is done
+    stage: 0,            // sub-step inside a mission
+    timer: 0,            // seconds left for timed missions (0 = untimed)
+    hold: 0,             // hold-E progress 0..1
+    done: false,
+    freeRoam: false,
+  };
+}
+
+export function missionTitle(m, idx) {
+  return [
+    '1 · First Fare', '2 · Hot Wheels', '3 · Harbor Run',
+    '4 · Bank Job', "5 · Kingpin's Errand", '6 · The Big Score',
+  ][idx] || 'Free Roam';
+}
+
+export function currentObjective(G) {
+  const m = G.missions, L = G.city.locations;
+  if (m.done || m.freeRoam) return null;
+  const i = m.index;
+  if (i === 0) {
+    return m.stage === 0
+      ? { text: 'Pick up the client at ' + L.safehouse.name, x: L.safehouse.x, y: L.safehouse.y, r: 70 }
+      : { text: 'Drive the client to the Azura Grand Hotel', x: L.hotel.x, y: L.hotel.y, r: 80 };
   }
-  current() { return this.done ? null : MISSIONS[this.index]; }
-  step() { const m = this.current(); return m ? m.steps[this.stepIdx] : null; }
-  marker() {
-    const s = this.step();
-    if (!s) return null;
-    if (s.type === 'enter' && this.G.goldCar) return { x: this.G.goldCar.x, y: this.G.goldCar.y, label: s.label };
-    const p = PLACES[s.at];
-    return { x: p.x, y: p.y, label: s.label };
+  if (i === 1) {
+    return m.stage === 0
+      ? { text: 'Steal the red Comet at the Marina (press E)', x: L.marina.x, y: L.marina.y, r: 70 }
+      : { text: "Deliver the Comet to Vera's Garage", x: L.safehouse.x, y: L.safehouse.y, r: 80 };
   }
-  objectiveText() {
-    const m = this.current();
-    if (!m) return this.done ? 'All jobs done.' : '';
-    const s = this.step();
-    return 'M' + m.id + ' · ' + m.name + ' — ' + (s ? s.label : '');
+  if (i === 2) {
+    return m.stage === 0
+      ? { text: 'Pick up the package at the Harbor Docks', x: L.docks.x, y: L.docks.y, r: 70 }
+      : { text: 'Deliver to Meridian Tower — beat the clock!', x: L.tower.x, y: L.tower.y, r: 80 };
   }
-  start(i) {
-    this.index = i;
-    this.stepIdx = 0;
-    this.hold = 0;
-    this.done = false;
-    this.stepStarted = false;
-    this._guardsSpawned = false;
-    const m = MISSIONS[i];
-    this.timer = m.timeLimit || Infinity;
-    this.G.toast('Mission ' + m.id + ': ' + m.name + ' — ' + m.briefing);
-    this.G.sound.missionDone();
+  if (i === 3) {
+    return m.stage === 0
+      ? { text: 'Get to the Azura National Bank', x: L.bank.x, y: L.bank.y, r: 70 }
+      : m.stage === 1
+        ? { text: 'Hold E to crack the safe…', x: L.bank.x, y: L.bank.y, r: 70, hold: true }
+        : { text: 'Lose the heat — reach the safehouse!', x: L.safehouse.x, y: L.safehouse.y, r: 90 };
   }
-  restartCurrent() { this.start(this.index); }
-  // Debug / test hook: finish the whole current mission at once.
-  completeMission() {
-    const m = this.current();
-    if (!m) return;
-    const id = m.id;
-    while (this.current() && this.current().id === id && this.step()) this.advance(true);
+  if (i === 4) {
+    const d = L.drops[m.stage];
+    return { text: 'Drop ' + (m.stage + 1) + ' of 3: ' + d.name, x: d.x, y: d.y, r: 70 };
   }
-  advance(silent) {
-    const m = this.current();
-    const s = this.step();
-    if (!m || !s) return;
-    this.onStepDone(m, s);
-    this.stepIdx++;
-    this.hold = 0;
-    this.stepStarted = false;
-    if (this.stepIdx >= m.steps.length) this.finishMission(m);
-    else if (!silent) this.G.toast(this.step().label);
-  }
-  onStepDone(m, s) {
-    const G = this.G;
-    if (m.id === 4 && s.type === 'hold') { commitCrime(G, 2); G.toast('Alarm tripped — the heat is on!'); }
-    if (m.id === 6 && s.type === 'hold') { commitCrime(G, 2); G.toast('Vault open — run!'); }
-  }
-  onStepStart(m, s) {
-    const G = this.G;
-    if (m.id === 6 && s.type === 'hold' && !this._guardsSpawned) {
-      this._guardsSpawned = true;
-      spawnGang(G, PLACES.vault.x, PLACES.vault.y, 4);
-      G.toast('Four guards on the vault!');
-    }
-    if (m.id === 6 && s.type === 'goto' && s.at === 'safehouse') {
-      G.wanted = 5; G.crimeTimer = 0;
-      G.toast('Five stars — lose the tail!');
-    }
-  }
-  finishMission(m) {
-    const G = this.G;
-    G.player.money += m.reward;
-    G.score += m.reward + 100;
-    G.missionsDone++;
-    G.sound.missionDone();
-    G.toast('Mission complete: ' + m.name + ' +$' + m.reward.toLocaleString('en-US'));
-    if (G.player.money > (G.save.best || 0)) { G.save.best = G.player.money; G.saveGame(); }
-    if (m.id === 6) { this.done = true; return; }
-    this.index++;
-    this.stepIdx = 0;
-    this.hold = 0;
-    this._guardsSpawned = false;
-    const next = MISSIONS[this.index];
-    this.timer = next.timeLimit || Infinity;
-    G.toast('Mission ' + next.id + ': ' + next.name + ' — ' + next.briefing);
-  }
-  update(dt) {
-    const G = this.G;
-    if (G.freeRoam || this.done || G.state !== 'playing') return;
-    const m = this.current();
-    const s = this.step();
-    if (!m || !s) return;
-    if (!this.stepStarted) { this.stepStarted = true; this.onStepStart(m, s); }
-    if (this.timer !== Infinity) {
-      this.timer -= dt;
-      if (this.timer <= 0) {
-        G.toast('Too slow — the job fell through. Try again.');
-        this.restartCurrent();
-        return;
-      }
-    }
-    const p = G.player;
-    if (s.type === 'goto' || s.type === 'hold') {
-      const mk = this.marker();
-      const d = dist(p.x, p.y, mk.x, mk.y);
-      if (s.type === 'goto') {
-        if (d < s.radius) {
-          if (s.needCar && p.onFoot) {
-            this.hintT -= dt;
-            if (this.hintT <= 0) { this.hintT = 3; G.toast('You need a car for this.'); }
-            return;
-          }
-          this.advance();
-        }
-        return;
-      }
-      // hold step
-      if (d < s.radius && G.input.isDown('KeyE')) {
-        this.hold += dt;
-        if (this.hold >= s.holdTime) this.advance();
-      } else {
-        this.hold = Math.max(0, this.hold - dt * 2);
-      }
+  // Mission 6.
+  return m.stage === 0
+    ? { text: 'Reach the Meridian Vault', x: L.vault.x, y: L.vault.y, r: 70 }
+    : m.stage === 1
+      ? { text: 'Hold E to drill the vault — guards incoming!', x: L.vault.x, y: L.vault.y, r: 70, hold: true }
+      : { text: 'RUN! Escape to the boat at the beach!', x: L.boat.x, y: L.boat.y, r: 90 };
+}
+
+export function updateMissions(G, dt) {
+  const m = G.missions;
+  if (m.done || m.freeRoam) return;
+  const obj = currentObjective(G);
+  if (!obj) return;
+  const p = G.player;
+
+  // Timed missions tick down.
+  if (m.timer > 0) {
+    m.timer -= dt;
+    if (m.timer <= 0) {
+      m.timer = 0;
+      G.audio.fail();
+      G.toast('Too slow — mission failed, try again');
+      restartMission(G);
       return;
     }
-    if (s.type === 'enter') {
-      if (p.car && p.car.kind === 'gold') this.advance();
+  }
+
+  const d = dist(p.x, p.y, obj.x, obj.y);
+  if (d > obj.r) { m.hold = 0; return; }
+
+  // Hot Wheels pays only for the Comet itself — any other car at the garage
+  // is just a car, not the job.
+  if (m.index === 1 && m.stage === 1 && p.car !== G.sportCar) return;
+
+  if (obj.hold) {
+    if (G.input.down('e')) {
+      m.hold += dt / (m.index === 5 ? 5 : 3);
+      if (Math.random() < 0.2) G.audio.blip(1200, 0.05, 'square', 0.05);
+      if (m.hold >= 1) {
+        m.hold = 0;
+        if (m.index === 3) {
+          G.addMoney(0); // payout lands on delivery, not on the crack
+          G.wanted = 3;
+          G.toast('Safe cracked! Cops are coming — RUN!');
+          G.audio.missionDone();
+          m.stage = 2;
+        } else if (m.index === 5) {
+          G.wanted = 5;
+          G.toast('Vault open! Five stars — get to the boat!');
+          G.audio.missionDone();
+          m.stage = 2;
+        }
+      }
+    } else m.hold = 0;
+    return;
+  }
+
+  // Reached the objective marker.
+  if (m.index === 0 && m.stage === 0) { m.stage = 1; G.toast('Client aboard — to the hotel!'); G.audio.pickup(); return; }
+  if (m.index === 1 && m.stage === 0) return; // stealing is handled by E near the car
+  if (m.index === 2 && m.stage === 0) { m.stage = 1; m.timer = 150; G.toast('Package secured — 2:30 on the clock!'); G.audio.pickup(); return; }
+  if (m.index === 3 && m.stage === 0) { m.stage = 1; G.toast('Hold E to crack the safe'); return; }
+  if (m.index === 5 && m.stage === 0) {
+    m.stage = 1;
+    G.toast('Guards! Hold E and keep them off you!');
+    spawnGuards(G);
+    return;
+  }
+  if (m.index === 4) {
+    // Three drops, one at a time: only the third completes the mission.
+    if (m.stage < 2) {
+      m.stage++;
+      G.toast('Drop ' + m.stage + ' of 3 done — next one!');
+      G.audio.pickup();
+      return;
     }
+  }
+  completeMission(G);
+}
+
+function spawnGuards(G) {
+  const v = G.city.locations.vault;
+  const spots = [[-90, -60], [90, -70], [-70, 90], [80, 80]];
+  for (const [dx, dy] of spots) {
+    G.guards.push({ x: v.x + dx, y: v.y + dy, angle: 0, hp: 3, shootCd: 0.5 + Math.random(), dead: false });
+  }
+}
+
+function restartMission(G) {
+  const m = G.missions;
+  m.stage = 0; m.hold = 0; m.timer = 0;
+  G.guards = [];
+  G.toast('Mission restarted: ' + missionTitle(m, m.index));
+}
+
+export function completeMission(G) {
+  const m = G.missions;
+  const pay = MONEY[m.index];
+  G.addMoney(pay);
+  G.audio.missionDone();
+  G.toast('Mission complete! +' + formatMoney(pay));
+  G.missionsCompleted++;
+  m.index++;
+  m.stage = 0; m.hold = 0; m.timer = 0;
+  if (m.index === 4) { m.timer = 180; G.toast('Three drops, 3:00 — go!'); }
+  if (m.index >= 6) {
+    m.done = true;
+    G.win();
+  }
+}
+
+// Called by entities when the sports car is stolen: advance mission 2.
+export function onSportCarStolen(G) {
+  const m = G.missions;
+  if (m.index === 1 && m.stage === 0) {
+    m.stage = 1;
+    G.toast('Comet secured — deliver it to the garage!');
   }
 }
