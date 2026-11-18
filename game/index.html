@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOLMAR HEAT — Six Jobs. One City.</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="game" width="1280" height="800"></canvas>
+
+<!-- Top-left: wanted stars + health -->
+<div id="hud-left">
+  <div id="stars" class="stars">☆☆☆☆☆</div>
+  <div id="health-bar"><div id="health-fill" class="health-fill" style="width:100%"></div></div>
+  <div id="health-num" class="health-num">100</div>
+</div>
+
+<!-- Top-right: money / score / clock -->
+<div id="hud-right">
+  <div id="money" class="money">$0</div>
+  <div id="score" class="score">Score 0</div>
+  <div id="clock" class="clock">18:00</div>
+</div>
+
+<!-- Top-center: mission banner (kept clear of the money readout) -->
+<div id="mission-banner">
+  <span id="mission-text"></span>
+  <span id="mission-timer"></span>
+  <div id="hold-bar"><div></div></div>
+</div>
+
+<!-- Bottom-right: minimap -->
+<canvas id="minimap" width="180" height="180"></canvas>
+
+<!-- Bottom-left: controls hint -->
+<div id="hint">WASD move/drive · E enter car · Space shoot/handbrake · Shift sprint/boost · P pause · M jobs · N mute · F free roam · R restart</div>
+
+<!-- Toasts -->
+<div id="toasts"></div>
+
+<!-- Start menu -->
+<div id="overlay-menu" class="overlay">
+  <div class="panel">
+    <h1>SOLMAR HEAT</h1>
+    <p class="tagline">Six jobs. One city. No brakes.</p>
+    <p id="menu-best" class="best"></p>
+    <button id="btn-new">New Game</button>
+    <button id="btn-continue">Continue</button>
+    <button id="btn-how">How to Play</button>
+    <div id="howto">
+      <p><b>On foot:</b> WASD move · Shift sprint · Space shoot · E enter a car</p>
+      <p><b>Driving:</b> W/S gas &amp; brake · A/D steer · Space handbrake · Shift boost · E exit</p>
+      <p><b>Jobs:</b> follow the gold marker. M opens the job list, F toggles free roam.</p>
+      <p><b>Heat:</b> crimes raise your wanted stars. Cops bust you on foot if they touch you, or in a car if they box you in. Lay low and stars fade.</p>
+      <p>Finish all six jobs to win. Busted or wasted ends the run — press R to retry the job.</p>
+    </div>
+    <p class="foot">Rae needs $9,500. The city is not giving it away.</p>
+  </div>
+</div>
+
+<!-- Pause -->
+<div id="overlay-pause" class="overlay">
+  <div class="panel">
+    <h1>Paused</h1>
+    <p>Press P to resume.</p>
+    <button id="btn-menu">Quit to Menu</button>
+  </div>
+</div>
+
+<!-- Busted -->
+<div id="overlay-busted" class="overlay">
+  <div class="panel">
+    <h1>BUSTED</h1>
+    <p>The heat caught up with Rae.</p>
+    <button id="btn-retry">Retry Job (R)</button>
+  </div>
+</div>
+
+<!-- Wasted -->
+<div id="overlay-wasted" class="overlay">
+  <div class="panel">
+    <h1>WASTED</h1>
+    <p>Rae went down in Solmar.</p>
+    <button id="btn-retry2">Retry Job (R)</button>
+  </div>
+</div>
+
+<!-- Win -->
+<div id="overlay-win" class="overlay">
+  <div class="panel">
+    <h1>THE BIG SCORE</h1>
+    <p>All six jobs done. Rae walks away with</p>
+    <p id="win-money" class="win-money">$9,500</p>
+    <button id="btn-win-again">Play Again (R)</button>
+    <button id="btn-win-menu">Menu</button>
+  </div>
+</div>
+
+<!-- Job list -->
+<div id="overlay-panel" class="overlay">
+  <div class="panel">
+    <h1>Jobs</h1>
+    <div id="panel-list"></div>
+    <p class="foot">Press M to close. F toggles free roam.</p>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
